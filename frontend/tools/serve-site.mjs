@@ -22,7 +22,7 @@ if (!existsSync(path.join(SITE, 'index.html'))) { console.error('dist/site is mi
 
 createServer((req, res) => {
   const url = new URL(req.url, 'http://x')
-  if (['/api/leads', '/api/trial', '/api/admin', '/api/subscribe', '/api/payment/return', '/api/payment/webhook'].includes(url.pathname)) {
+  if (/^\/api\/(oms\/|auth\/|users(\/|$))/.test(url.pathname) || ['/api/leads', '/api/trial', '/api/admin', '/api/subscribe', '/api/payment/return', '/api/payment/webhook'].includes(url.pathname)) {
     const fwd = httpRequest({ hostname: leadApi.hostname, port: leadApi.port, path: url.pathname + url.search,
       method: req.method, headers: { ...req.headers, host: leadApi.host, 'x-forwarded-host': req.headers.host } }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res) })
     fwd.on('error', () => { res.writeHead(502, { 'Content-Type': 'application/json' }); res.end('{"detail":"lead API not running"}') })
@@ -51,4 +51,4 @@ createServer((req, res) => {
   if (rel === '/sw.js') headers['Service-Worker-Allowed'] = '/'
   res.writeHead(200, headers)
   res.end(readFileSync(file))
-}).listen(PORT, () => console.log(`[site] http://localhost:${PORT}/  (demo at /demo/, lead form → ${leadApi.href}api/leads)`))
+}).listen(PORT, process.env.SITE_HOST || undefined, () => console.log(`[site] http://localhost:${PORT}/  (demo at /demo/, lead form → ${leadApi.href}api/leads)`))

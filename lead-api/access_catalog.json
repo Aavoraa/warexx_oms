@@ -1,0 +1,251 @@
+{
+ "actions": [
+  {
+   "key": "view",
+   "label": "View",
+   "why": "open the screen and read it"
+  },
+  {
+   "key": "create",
+   "label": "Create",
+   "why": "add new records on it"
+  },
+  {
+   "key": "modify",
+   "label": "Modify",
+   "why": "change records that are already there"
+  },
+  {
+   "key": "delete",
+   "label": "Delete",
+   "why": "remove records"
+  },
+  {
+   "key": "print",
+   "label": "Print",
+   "why": "print labels, or export the register to a file"
+  }
+ ],
+ "screens": [
+  {
+   "key": "command",
+   "label": "Command Center",
+   "group": "Company",
+   "min": "superadmin"
+  },
+  {
+   "key": "ask",
+   "label": "Ask Anything & Track",
+   "group": "Company",
+   "min": "admin"
+  },
+  {
+   "key": "audit",
+   "label": "Audit Trail",
+   "group": "Company",
+   "min": "admin"
+  },
+  {
+   "key": "central",
+   "label": "Central Dashboard",
+   "group": "Company",
+   "min": "admin"
+  },
+  {
+   "key": "dashboard",
+   "label": "Warehouse Dashboard",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "purchase_orders",
+   "label": "Purchase Orders",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "lr",
+   "label": "Transport / LR Entry",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "documents",
+   "label": "Invoice Entry",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "purchases",
+   "label": "GRN — Receive Goods",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "inventory",
+   "label": "Inventory",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "locator",
+   "label": "Item Locator",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "stock_audit",
+   "label": "Warehouse Stock Audit",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "physical_audit",
+   "label": "Physical Stock Audit",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "labelprint",
+   "label": "QR / Label Printing",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "outward",
+   "label": "Stock Outward",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "inward",
+   "label": "Stock Inward",
+   "group": "Warehouse",
+   "min": null
+  },
+  {
+   "key": "deadstock",
+   "label": "Dead Stock & Clearance",
+   "group": "Office",
+   "min": "admin"
+  },
+  {
+   "key": "returns",
+   "label": "Returns / Debit Notes",
+   "group": "Office",
+   "min": "admin"
+  },
+  {
+   "key": "payments",
+   "label": "Payments",
+   "group": "Office",
+   "min": "admin"
+  },
+  {
+   "key": "reports",
+   "label": "Reports",
+   "group": "Office",
+   "min": "admin"
+  },
+  {
+   "key": "suppliers",
+   "label": "Suppliers",
+   "group": "Setup",
+   "min": "admin"
+  },
+  {
+   "key": "masters",
+   "label": "Masters",
+   "group": "Setup",
+   "min": "admin"
+  },
+  {
+   "key": "catalogues",
+   "label": "Catalogues",
+   "group": "Setup",
+   "min": "admin"
+  },
+  {
+   "key": "locations",
+   "label": "Locations",
+   "group": "Setup",
+   "min": "admin"
+  },
+  {
+   "key": "labels",
+   "label": "Label Designer",
+   "group": "Setup",
+   "min": "admin"
+  },
+  {
+   "key": "users",
+   "label": "Users & Access",
+   "group": "Setup",
+   "min": "superadmin"
+  },
+  {
+   "key": "oms_dashboard",
+   "label": "Order Dashboard",
+   "group": "Orders",
+   "min": null
+  },
+  {
+   "key": "oms_orders",
+   "label": "Order Inbox",
+   "group": "Orders",
+   "min": null
+  },
+  {
+   "key": "oms_fulfilment",
+   "label": "Fulfilment",
+   "group": "Orders",
+   "min": null
+  },
+  {
+   "key": "oms_returns",
+   "label": "Customer Returns",
+   "group": "Orders",
+   "min": null
+  },
+  {
+   "key": "oms_reports",
+   "label": "Order Reports",
+   "group": "Orders",
+   "min": null
+  }
+ ],
+ "data_permissions": [
+  {
+   "key": "hide_cost_price",
+   "label": "Hide cost price",
+   "why": "the GRN cost and weighted-average cost, everywhere they are shown"
+  },
+  {
+   "key": "hide_selling_price",
+   "label": "Hide selling price",
+   "why": "the shelf price and its discount"
+  },
+  {
+   "key": "hide_mrp",
+   "label": "Hide MRP",
+   "why": "the printed retail price"
+  },
+  {
+   "key": "hide_supplier",
+   "label": "Hide supplier",
+   "why": "who the goods were bought from, on stock and locator screens"
+  }
+ ],
+ "store_access": [
+  {
+   "key": "admin",
+   "label": "Admin",
+   "why": "every Store screen"
+  },
+  {
+   "key": "user",
+   "label": "User",
+   "why": "Billing Counter and Store Reports only"
+  }
+ ]
+}

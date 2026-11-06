@@ -217,8 +217,8 @@ published test card VISA 4012 0000 0000 1097 → simulator → back to `/api/pay
 3. **HTTPS and domain:** the production domain must serve HTTPS (Vercel does). HDFC's webhooks
    come from the IP addresses listed on the webhooks page, and nothing here filters by IP.
 4. **Deploy:** push → Vercel builds. The billing migrations run on the first request.
-5. **First live payment:** make one small real purchase, check `/admin` → Payments and the HDFC
-   dashboard, then refund it from `/admin`.
+5. **First live payment:** make one small real purchase, check it with `POST /api/admin` (`payments`) and the HDFC
+   dashboard, then refund it with `payment_refund`.
 
 ## Switching it on for the live site (Vercel, this repo)
 
@@ -256,8 +256,8 @@ The other two projects (`warexxdemo`, `warexx-demo`) serve the pages only, so `/
 ## Operations
 
 - **Reconciliation:**
-  - Daily: compare `/admin` → Payments (or `billing_orders`) with HDFC's settlement report.
-  - Orders in `pending` or `unknown`: use **Check with HDFC**.
+  - Daily: compare `POST /api/admin` `payments` (or `billing_orders`) with HDFC's settlement report.
+  - Orders in `pending` or `unknown`: use `POST /api/admin` `payment_check`.
   - `unknown` with reason `mismatch`: investigate before activating anything by hand.
 - **Logs** carry order references and statuses only. They never contain keys, passwords, card
   data or customer contact details.

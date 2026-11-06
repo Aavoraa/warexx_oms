@@ -1,0 +1,81 @@
+/* Order Management (OMS.jsx): only what WAREXX's shared pieces and hr.css lack. */
+.oms-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
+.oms-tab { background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 8px 12px;
+  color: var(--text-2); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.oms-tab:hover { color: var(--text); }
+.oms-tab.on { color: var(--text); border-bottom-color: var(--brand); font-weight: 600; }
+.oms-tab span { color: var(--muted); font-size: var(--fs-xs); margin-left: 3px; font-variant-numeric: tabular-nums; }
+.oms-status-cell { white-space: nowrap; }
+.oms-status-cell > * + * { margin-left: 6px; }
+.oms-period { min-width: 150px; }
+.oms-period select { width: 100%; }
+.oms-short { color: var(--danger); font-weight: 600; }
+
+.oms-panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px; min-width: 0; }
+.oms-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; }
+.oms-subhead { font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 10px; }
+.wx-drawer-body .oms-subhead, .fin-modal .oms-subhead { margin-top: 18px; }
+.oms-report-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+
+.oms-pipeline { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.oms-stage { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; text-align: left; font: inherit; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); }
+.oms-stage:hover { border-color: var(--line-strong); }
+.oms-stage b { font-size: var(--fs-lg); font-variant-numeric: tabular-nums; }
+.oms-stage span { font-size: var(--fs-xs); color: var(--text-2); }
+
+.oms-bars { display: flex; flex-direction: column; gap: 10px; }
+.oms-bar { display: grid; grid-template-columns: 100px minmax(40px, 1fr) auto; align-items: center; gap: 10px; font-size: var(--fs-sm); }
+.oms-bar-track { height: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
+.oms-bar-track i { display: block; height: 100%; background: var(--brand); border-radius: 4px; }
+.oms-bar-val { color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* fulfilment: columns scroll sideways on a narrow screen rather than squeezing */
+.oms-board { flex: 1; min-height: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(210px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 6px; }
+.oms-col { display: flex; flex-direction: column; min-height: 0; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.oms-col > header { padding: 10px 12px; font-size: var(--fs-sm); font-weight: 700; border-bottom: 1px solid var(--line); }
+.oms-col > header span { color: var(--muted); font-weight: 500; margin-left: 4px; }
+.oms-col-body { display: flex; flex-direction: column; gap: 8px; padding: 8px; overflow-y: auto; min-height: 120px; }
+.oms-col-empty { padding: 12px 4px; text-align: center; }
+.oms-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.oms-card.late { border-left: 3px solid var(--danger); }
+.oms-card-open { display: flex; flex-direction: column; gap: 2px; background: none; border: none; padding: 0; text-align: left; font: inherit; color: var(--text); cursor: pointer; }
+.oms-card-open:hover b { color: var(--brand); }
+.oms-card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.oms-card-tags:empty { display: none; }
+.oms-card-act { width: 100%; }
+
+/* one order */
+.oms-drawer-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.oms-note { padding: 8px 12px; margin-bottom: 12px; border-radius: var(--radius-sm); background: var(--panel-2); font-size: var(--fs-sm); }
+.oms-note.warn { border-left: 3px solid var(--warn); }
+.oms-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin-bottom: 16px; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.oms-facts span { display: block; font-size: var(--fs-xs); color: var(--muted); margin-bottom: 2px; }
+.oms-facts b { display: block; }
+.oms-return-row { padding: 4px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.oms-timeline { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line); }
+.oms-timeline li { position: relative; padding: 0 0 12px; }
+.oms-timeline li::before { content: ''; position: absolute; left: -19px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
+.oms-foot-main { margin-left: auto; }
+.oms-foot-note { margin-right: auto; }
+.oms-row-actions { white-space: nowrap; text-align: right; }
+.oms-row-actions .btn + .btn { margin-left: 6px; }
+
+.oms-signin { max-width: 360px; display: flex; flex-direction: column; gap: 12px; }
+.oms-signin .field { margin: 0; }
+.oms-signin input { width: 100%; }
+.oms-sample { padding: 6px var(--gutter, 16px); background: var(--brand-50); color: var(--text-2); border-bottom: 1px solid var(--line); }
+
+/* a new order */
+.oms-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+.oms-form .field { margin: 0; }
+.oms-form input, .oms-form select { width: 100%; }
+.oms-line { display: grid; grid-template-columns: minmax(0, 1fr) 80px auto; gap: 8px; margin-bottom: 8px; }
+.oms-line select { width: 100%; min-width: 0; }
+input.oms-qty { width: 80px; text-align: right; }
+
+@media (max-width: 760px) {
+  .oms-pipeline { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
+  .oms-grid { grid-template-columns: minmax(0, 1fr); }
+  .oms-form, .oms-facts { grid-template-columns: minmax(0, 1fr); }
+}

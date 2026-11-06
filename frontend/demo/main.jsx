@@ -40,6 +40,40 @@ async function ready() {
   }
 }
 
+// A staff session: `?staff=1` (remembered; `?staff=0` goes back to the demo). The app's
+// own login page, checked by the real server, with no booked slot, tour or demo account.
+// Only where a server has accounts switched on; everywhere else this is simply the demo.
+async function staffSession() {
+  try {
+    const asked = new URLSearchParams(location.search).get('staff')
+    if (asked === '1') localStorage.setItem('wx_staff', '1')
+    if (asked === '0') localStorage.removeItem('wx_staff')
+    if (localStorage.getItem('wx_staff') !== '1') return false
+    const s = await fetch('/api/oms/health', { cache: 'no-store' }).then((r) => r.json())
+    if (s.live) return true
+    localStorage.removeItem('wx_staff')
+  } catch { /* private mode, or no answer: the demo */ }
+  return false
+}
+
+function staffStart() {
+  try {
+    if (localStorage.getItem('essa_token') === 'demo') localStorage.removeItem('essa_token')
+    localStorage.setItem('wrx_entered', '1')
+    if (!localStorage.getItem('essa_warehouse')) localStorage.setItem('essa_warehouse', JSON.stringify(START.warehouse))
+  } catch { /* private mode */ }
+}
+
+function StaffBanner() {
+  return (
+    <div className="wxdemo-banner" role="note">
+      <span className="wxdemo-dot" aria-hidden="true" />
+      <span><b>Staff</b> · orders and accounts are real; the other screens still show sample data</span>
+      <a href="?staff=0" target="_top">Open the public demo</a>
+    </div>
+  )
+}
+
 function signIn() {
   try {
     // Fresh state on every visit to the demo URL, so each visitor starts in
@@ -82,6 +116,14 @@ function Banner() {
 
 ready().then(async () => {
   const root = ReactDOM.createRoot(document.getElementById('root'))
+  if (await staffSession()) {
+    staffStart()
+    const { default: App } = await import('../vendor/warexx-app/src/App.jsx')
+    document.getElementById('boot')?.remove()
+    document.body.classList.add('wxdemo')
+    root.render(<React.StrictMode><App /><StaffBanner /></React.StrictMode>)
+    return
+  }
   // A booked slot (trial.jsx, VITE_DEMO_TRIAL=1): sign up or sign in first, and
   // only inside the slot's two hours. Without it the demo opens straight away.
   let open = null

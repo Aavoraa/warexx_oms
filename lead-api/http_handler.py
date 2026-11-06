@@ -21,8 +21,10 @@ from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qsl
 
+import accounts
 import admin
 import lead_mail
+import oms
 import payments
 import store
 import trial
@@ -88,6 +90,10 @@ class LeadHandler(BaseHTTPRequestHandler):
         p = self.path.split("?")[0].rstrip("/")
         if self.only:                      # a Vercel function: its file decides the path
             return self.only
+        if p.startswith("/api/oms/"):
+            return "oms"
+        if p.startswith("/api/auth/") or p == "/api/users" or p.startswith("/api/users/"):
+            return "accounts"
         return {"/api/leads": "leads", "/api/trial": "trial", "/api/admin": "admin", "/api/subscribe": "subscribe",
                 "/api/payment/return": "payment_return", "/api/payment/webhook": "payment_webhook"}.get(p)
 
@@ -125,6 +131,10 @@ class LeadHandler(BaseHTTPRequestHandler):
         raw = self._body()
         if raw is None:
             return self._answer(413, {"detail": "Too large"})
+        if route == "oms":
+            return self._oms(raw)
+        if route == "accounts":
+            return self._accounts(raw)
         if route == "trial":
             return self._trial(raw)
         if route == "admin":
@@ -374,7 +384,47 @@ class LeadHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(page)
 
+    def _caller(self):
+        return {"peer": self.client_address[0], "hosts": self._hosts(), "origin": self.headers.get("Origin") or ""}
+
+    def _accounts(self, raw):
+        try:
+            return self._answer(200, accounts.handle(self.command, self.path, raw, token=self.headers.get("X-Essa-Token") or "",
+                                                     ip=self._ip(), **self._caller()))
+        except accounts.AccountError as e:
+            return self._answer(e.status, {"detail": e.detail})
+        except Exception as exc:                              # noqa: BLE001 — the database, most likely
+            print(f"[accounts] failed: {type(exc).__name__}: {str(exc)[:160]}", flush=True)
+            return self._answer(503, {"detail": "The account database is not available."})
+
+    def _other_methods(self):
+        if self._route() != "accounts":
+            return self._refuse()
+        raw = self._body()
+        return self._answer(413, {"detail": "Too large"}) if raw is None else self._accounts(raw)
+
+    def _oms(self, raw):
+        try:
+            path = self.path.split("?")[0].rstrip("/")
+            if path == "/api/oms/health":
+                return self._answer(200, accounts.status(**self._caller()))
+            if not accounts.live():
+                return self._answer(503, {"detail": "oms_off"})
+            me = accounts.who(self.headers.get("X-Essa-Token") or "", **self._caller())
+            if path == "/api/oms/session":
+                return self._answer(200, {"live": True, "signed_in": bool(me)})
+            return self._answer(200, oms.handle(self.command, self.path, raw, me, self.headers.get("X-Essa-Warehouse") or ""))
+        except oms.OmsError as e:
+            return self._answer(e.status, {"detail": e.detail})
+        except Exception as exc:                              # noqa: BLE001 — the database, most likely
+            print(f"[oms] failed: {type(exc).__name__}: {str(exc)[:160]}", flush=True)
+            return self._answer(503, {"detail": "The order database is not available."})
+
     def do_GET(self):
+        if self._route() == "oms":
+            return self._oms(b"")
+        if self._route() == "accounts":
+            return self._accounts(b"")
         if self._route() == "payment_return":
             return self._payment_return(b"")
         return self._refuse()
@@ -392,7 +442,7 @@ class LeadHandler(BaseHTTPRequestHandler):
     def _refuse(self):
         self._answer(405, {"detail": "Only POST"})
 
-    do_PUT = do_PATCH = do_DELETE = _refuse
+    do_PUT = do_PATCH = do_DELETE = _other_methods
 
     def log_message(self, fmt, *args):
         print("[lead api] " + (fmt % args), flush=True)

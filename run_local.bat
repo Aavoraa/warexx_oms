@@ -1,5 +1,5 @@
 @echo off
-REM The WAREXX website (landing page, demo, /admin) on THIS computer, online
+REM The WAREXX website (landing page, demo) on THIS computer, online
 REM through a Cloudflare Tunnel, with the leads database kept here and the
 REM free-trial emails (demo link + login email + password) sent from the
 REM mailbox in .env. See frontend\tools\run-local.mjs. Ctrl+C stops it.

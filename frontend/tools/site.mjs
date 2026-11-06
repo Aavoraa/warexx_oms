@@ -58,10 +58,6 @@ for (const name of readdirSync(TMP)) {
 }
 rmSync(TMP, { recursive: true, force: true })
 
-// 3b. the leads admin (/admin): one self-contained page; its data comes from
-//     /api/admin (api/admin.py), locked by ADMIN_PASSWORD on the server
-cpSync(path.join(FRONTEND, 'admin'), path.join(SITE, 'admin'), { recursive: true })
-
 // 4. headers and fallbacks for Netlify / Cloudflare Pages (vercel.json has the same)
 writeFileSync(path.join(SITE, '_headers'), [
   '/*', '  X-Content-Type-Options: nosniff', '  Referrer-Policy: strict-origin-when-cross-origin',
@@ -71,7 +67,6 @@ writeFileSync(path.join(SITE, '_headers'), [
   '/demo/assets/*', '  Cache-Control: public, max-age=0, must-revalidate',
   '/sw.js', '  Cache-Control: no-cache', '  Service-Worker-Allowed: /',
   '/data/*', '  Cache-Control: no-cache',
-  '/admin/*', '  Cache-Control: no-store', '  X-Robots-Tag: noindex, nofollow',
 ].join('\n') + '\n')
 writeFileSync(path.join(SITE, '_redirects'), [
   '/demo     /demo/index.html  200',

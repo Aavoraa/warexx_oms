@@ -79,7 +79,7 @@ See [.env.example](.env.example). Two kinds, kept apart:
   `lead-api/server.py`. They are never part of a build.
 
 - **`POSTGRES_URL` / `ADMIN_PASSWORD` are server-side**: the leads database and
-  the admin page's password (see [Leads database and admin](#leads-database-and-admin)).
+  the admin API's password (see [Leads database and admin](#leads-database-and-admin)).
 
 The demo has no database. Nothing here knows the production database URL,
 auth secret, or any API key, and nothing should.
@@ -89,7 +89,7 @@ auth secret, or any API key, and nothing should.
 `run_local.bat` (or `node frontend/tools/run-local.mjs`) runs the whole
 website here, online through a free Cloudflare Tunnel:
 
-- the landing page, the demo and `/admin`, with the **leads database on this
+- the landing page and the demo, with the **leads database on this
   computer** (`lead-api/data/leads.db`);
 - every free trial is **emailed the demo link, the login email and a temporary
   password** (`DEMO_EMAIL_PASSWORD=1`): only the password's hash is kept, it
@@ -111,9 +111,77 @@ Visitors can only reach the site while this computer and the window are on.
 **Subscribe** on the pricing cards opens `/pay`. The customer enters billing details, accepts
 the terms and pays on HDFC Bank SmartGateway's own page. The server confirms the payment with
 HDFC's Order Status API, then activates the subscription and emails a receipt. The team sees
-orders and issues refunds under `/admin` → **Payments**. Settings, the flow, the billing
+orders and issues refunds through `POST /api/admin`. Settings, the flow, the billing
 database, tests and go-live steps: [docs/PAYMENTS.md](docs/PAYMENTS.md).
 Test: `python lead-api/payments_test.py`.
+
+## Order Management (OMS)
+
+Under **Orders → Order Management** in the app: a dashboard, an order inbox, fulfilment
+(allocate, pick, pack, ship), customer returns and reports. Screens:
+`frontend/vendor/warexx-app/src/OMS.jsx`. Who gets which:
+
+| | Sample orders | Real API |
+|---|---|---|
+| Who | a demo visitor; or `ACCOUNTS_SECRET` not set | staff signed in at `?staff=1` |
+| Answered by | the demo's worker, `sw.js` | `lead-api/oms.py` |
+| Data | `demo-data/recorded/bodies/oms-seed.json` (`demo-data/tools/seed_oms.mjs`) | its own database: `OMS_DATABASE_URL` (PostgreSQL), or `lead-api/data/oms.db` locally |
+| Changes | gone on reload | kept |
+| Sign-in | none | a staff account |
+
+`run_local.bat` starts with the sample business in an empty database and one Super Admin, `owner`,
+whose one-time password is in `lead-api/data/superadmin-password.local.txt`. With `--no-tunnel` the site
+listens on this computer only and the demo's own Sample Admin also reaches the real orders with no
+sign-in (`OMS_OPEN_LOCAL=1`); that never applies online.
+
+### Staff accounts
+
+`lead-api/accounts.py`, in the OMS database, behind the app's own login page and **Users & Access**
+screen. Staff open `/demo/?staff=1` (`?staff=0` goes back to the demo); public visitors never see a
+sign-in and never reach real data.
+
+| Role | Orders and fulfilment | Refunds, exchanges | All warehouses | Accounts |
+|---|---|---|---|---|
+| Super Admin | yes | yes | always | yes |
+| Admin | yes | yes | unless narrowed | no |
+| User | yes | no | unless narrowed | no |
+
+**Access** on Users & Access narrows an account to some warehouses and screens; for orders the server
+enforces this, for other screens (still sample data) it only hides them. Sign-ins last 12 hours. Five
+wrong passwords lock an account for 15 minutes. A password set by someone else must be changed at the
+next sign-in; deactivating or resetting an account ends its sessions at once. Changes are recorded in
+the `staff_audit` table.
+
+Setting up a deployment: set `ACCOUNTS_SECRET` and `OMS_DATABASE_URL`, redeploy, then make the first
+Super Admin from your computer against that database (it prints a one-time password):
+
+```bash
+python lead-api/accounts_admin.py --username owner --full-name "Your Name"
+```
+
+Filling the database (`OMS_DATABASE_URL` set, or the local file):
+
+```bash
+python lead-api/oms_load.py --sample             # the sample business; only into an empty database
+python lead-api/oms_load.py --products file.csv  # warehouse_code,warehouse_name,sku,name,description,mrp,price,stock
+```
+
+On Vercel: create a database for it, set `OMS_DATABASE_URL` and `ACCOUNTS_SECRET`, redeploy, then
+run the loader from your computer against that address. The tables are created on first use.
+
+What the real API does not do yet: the rest of the app (the warehouse switcher, Inventory, and so
+on) is still the recorded demo, so inside a warehouse the order screens match on its id. Sample ids
+line up; warehouses loaded from your CSV show their orders at Central. OMS stock is its own and does
+not move Inventory. Forgotten passwords need a Super Admin to reset them (no email reset). Refunds
+are records (no gateway), and channels (website, marketplace) do not feed orders in automatically.
+
+Tests: `python lead-api/oms_test.py`, `python lead-api/accounts_test.py`; `node tools/oms_browser_test.mjs`
+against `npm run preview:demo`. A staff session in a browser, on a scratch database: run the API with
+`ACCOUNTS_SECRET`, preview with `OMS_API_URL=http://127.0.0.1:8003`, make a Super Admin, then
+`OMS_STAFF_USER=<name> OMS_STAFF_PASSWORD=<one-time> node tools/oms_browser_test.mjs`.
+
+Note `npm run sync:app` replaces `vendor/warexx-app` wholesale, which would remove these screens
+along with HR's and Finance's unless they are in the source it copies from.
 
 ## Who gets which email
 
@@ -141,9 +209,9 @@ Until then, the video panel says "coming soon" and offers the trial.
 Every form sent from the landing page (contact, demo, brochure, plan enquiry…)
 and every free-trial user is kept in a database: who they are, which form,
 whether the access email went out, when they signed up and last signed in, and
-whether they finished or skipped the product tour. Read it at **`/admin`**:
-sign in with `ADMIN_PASSWORD`, then search, filter, page through, and **Export
-CSV** (opens in Excel).
+whether they finished or skipped the product tour. Read it through **`POST /api/admin`**:
+sign in with `ADMIN_PASSWORD`, then search, filter, page through and export CSV.
+There is no admin web page.
 
 - **On Vercel**: Project → **Storage** → **Create Database** → **Neon**
   (Postgres), connect it to this project (it sets `POSTGRES_URL`), add
@@ -151,15 +219,14 @@ CSV** (opens in Excel).
   are created on first use.
 - **Locally** with no database address set: a SQLite file,
   `lead-api/data/leads.db` (git-ignored). Start the lead API with
-  `ADMIN_PASSWORD` set to use `/admin` on the preview site.
+  `ADMIN_PASSWORD` set to use `/api/admin` locally.
 
 A database that is down or misconfigured never breaks a form, an email or the
 demo: the write is skipped and logged. This is the website's own database, not
-the WAREXX software's. `/admin` is linked from nowhere, `noindex`, never
-cached, rate-limited at sign-in, and its CSV defuses spreadsheet formulas.
+the WAREXX software's. `/api/admin` is rate-limited at sign-in, and its CSV defuses
+spreadsheet formulas.
 
-Code: `lead-api/store.py` (the database), `lead-api/admin.py` (`/api/admin`),
-`frontend/admin/index.html` (the page). Test: `python lead-api/store_test.py`
+Code: `lead-api/store.py` (the database), `lead-api/admin.py` (`/api/admin`). Test: `python lead-api/store_test.py`
 (SQLite; set `LEADS_DATABASE_URL` and install `requirements.txt` to run it on
 Postgres).
 
@@ -203,7 +270,7 @@ The server (`lead-api/trial.py`, `api/trial.py` on Vercel) issues and checks
 every pass against its own clock. The passes are signed with
 `DEMO_TRIAL_SECRET`, so a visitor cannot extend their window. A visitor's
 account lives in their browser (on another device they book again); the leads
-database only records what happened, for the admin page. Set **`DEMO_TRIAL_SECRET`** in the Vercel project (see
+database only records what happened, for the admin API. Set **`DEMO_TRIAL_SECRET`** in the Vercel project (see
 `.env.example`). Until it is set, the forms send as before and the demo opens
 without a sign-up.
 
@@ -244,7 +311,6 @@ repository root, if `landing-demo` is its own repository). `vercel.json` runs
 | `https://<project>.vercel.app/` | the landing page |
 | `https://<project>.vercel.app/demo/` | the interactive demo ("Book a demo" opens it) |
 | `https://<project>.vercel.app/api/leads` | the lead form's email function (`api/leads.py`) |
-| `https://<project>.vercel.app/admin` | the leads admin (`ADMIN_PASSWORD`; see above) |
 
 Set the `LEAD_*` variables in the project's environment settings. The demo's
 service worker, dataset and phone app sit at `/sw.js`, `/data/` and `/m/`,

@@ -2,7 +2,7 @@
 //
 //     node tools/run-local.mjs            (or run_local.bat in the folder above)
 //
-//   * the landing page, the demo and /admin   — tools/serve-site.mjs, :8030
+//   * the landing page and the demo           — tools/serve-site.mjs, :8030
 //   * the lead API + the leads database       — ../lead-api/server.py, :8003,
 //     a SQLite file in lead-api/data/ (nothing leaves this computer)
 //   * a public https address for both         — cloudflared, so a visitor
@@ -96,8 +96,7 @@ if (args.has('--build') || !existsSync(path.join(FRONT, 'dist', 'site', 'index.h
   }
 }
 
-// 2. the admin page's password: ../.env ADMIN_PASSWORD, else one kept in lead-api/data/
-let adminNote = 'set in .env (ADMIN_PASSWORD)'
+// 2. the admin API's password: ../.env ADMIN_PASSWORD, else one kept in lead-api/data/
 if (!env.ADMIN_PASSWORD) {
   const f = path.join(ROOT, 'lead-api', 'data', 'admin-password.local.txt')
   if (!existsSync(f)) {
@@ -105,7 +104,18 @@ if (!env.ADMIN_PASSWORD) {
     writeFileSync(f, 'local-' + randomBytes(12).toString('base64url'))
   }
   env.ADMIN_PASSWORD = readFileSync(f, 'utf8').trim()
-  adminNote = 'in lead-api\\data\\admin-password.local.txt'
+}
+
+// 2b. orders and staff accounts: the secret that signs sessions, from ../.env, else one
+//     kept in lead-api/data/; an empty database starts with the sample business and
+//     one Super Admin, whose one-time password goes in lead-api/data/ too
+if (!env.ACCOUNTS_SECRET) {
+  const f = path.join(ROOT, 'lead-api', 'data', 'accounts-secret.local.txt')
+  if (!existsSync(f)) {
+    mkdirSync(path.dirname(f), { recursive: true })
+    writeFileSync(f, randomBytes(48).toString('base64url'))
+  }
+  env.ACCOUNTS_SECRET = readFileSync(f, 'utf8').trim()
 }
 
 // 3. the public address
@@ -140,8 +150,26 @@ if (!args.has('--no-tunnel')) {
   env.LEAD_TRUST_CF = '1'
 }
 
+// this computer only: nobody else can reach the site, so the app's Super Admin goes
+// straight into the orders. Online (a tunnel), the order password stays.
+if (args.has('--no-tunnel')) {
+  env.SITE_HOST ??= '127.0.0.1'
+  env.OMS_OPEN_LOCAL ??= '1'
+}
+
 // 4. the lead API (and its database), then the site in front of it
 const [py, pre] = python()
+{
+  const r = spawnSync(py, [...pre, path.join(ROOT, 'lead-api', 'oms_load.py'), '--sample', '--if-empty'],
+    { env: { ...env, PYTHONIOENCODING: 'utf-8' }, encoding: 'utf8' })
+  if (r.status !== 0) { console.error(r.stderr || r.stdout); process.exit(1) }
+  say(r.stdout.trim())
+  const u = spawnSync(py, [...pre, path.join(ROOT, 'lead-api', 'accounts_admin.py'), '--username', 'owner', '--full-name', 'Owner', '--if-none',
+    '--password-file', path.join(ROOT, 'lead-api', 'data', 'superadmin-password.local.txt')],
+    { env: { ...env, PYTHONIOENCODING: 'utf-8' }, encoding: 'utf8' })
+  if (u.status !== 0) { console.error(u.stderr || u.stdout); process.exit(1) }
+  say(u.stdout.trim())
+}
 run('lead api', py, [...pre, path.join(ROOT, 'lead-api', 'server.py')],
   { env: { ...env, LEAD_API_PORT: String(API_PORT), PYTHONIOENCODING: 'utf-8' } })
 run('site', process.execPath, [path.join(FRONT, 'tools', 'serve-site.mjs')],
@@ -165,8 +193,9 @@ setTimeout(() => {
    WAREXX website, running on this computer
      Website   ${base}/
      Demo      ${base}/demo/
-     Admin     ${base}/admin      password ${adminNote}
      On this PC: http://localhost:${SITE_PORT}/
+     Staff     ${base}/demo/?staff=1   first password: lead-api\\data\\superadmin-password.local.txt
+     Orders    Order Management; ${args.has('--no-tunnel') ? 'no sign-in needed on this computer' : 'staff sign in'}
      Emails    ${mail}
      Database  ${dbNote()}
    Keep this window open; Ctrl+C stops everything.

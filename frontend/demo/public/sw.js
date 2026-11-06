@@ -59,7 +59,11 @@ self.addEventListener('fetch', (event) => {
   // a page load re-reads the recording, so newly recorded data shows on reload
   // without waiting for this worker to be replaced
   if (event.request.mode === 'navigate' && url.origin === self.location.origin
-      && !url.pathname.startsWith('/pos')) manifestP = null
+      && !url.pathname.startsWith('/pos')) {
+    manifestP = null
+    omsLiveP = null
+    event.waitUntil?.(omsReset())         // a reload starts the sample orders over too
+  }
   if (event.request.mode === 'navigate' && isMobilePage(url)) {
     event.respondWith(fetch('/m/index.html', { cache: 'no-cache' }))
     return
@@ -280,7 +284,22 @@ async function locateAnswer(m, url) {
     + 'a carton label, a barcode or a SKU.' }, 404)
 }
 
+// A staff session (?staff=1, demo/main.jsx) has the real server for orders and accounts,
+// and everyone else keeps the demo: public visitors never reach real data, or see a
+// sign-in. The server checks every call regardless; this only decides who answers.
+async function realServer(req, path) {
+  const oms = path.startsWith('/api/oms/')
+  const accounts = path.startsWith('/api/auth/') || path === '/api/users' || path.startsWith('/api/users/')
+  if (!oms && !accounts) return false
+  const staff = req.headers.get('X-Wx-Staff') === '1'
+  if (!staff && !oms) return false                 // no call to the network for a demo sign-in
+  const s = await omsStatus()
+  return s.live && (staff || s.open_local)
+}
+
 async function answer(req, url) {
+  if (url.pathname === '/api/oms/health') return json(await omsStatus())
+  if (await realServer(req, url.pathname)) return fetch(req)
   const m = await manifest()
   const method = req.method.toUpperCase()
   const wh = req.headers.get('X-Essa-Warehouse') || '-'
@@ -310,6 +329,8 @@ async function answer(req, url) {
     const e = m.exact.get(`GET - ${path}?code=${c}`)
     return e ? replay(e) : json({ detail: `No product for '${url.searchParams.get('code')}'` }, 404)
   }
+
+  if (path.startsWith('/api/oms/')) return omsAnswer(m, req, method, path, url, wh)
 
   // HR's people: an employee added or edited in the demo is kept for the visit
   // (the recording cannot know them), so the record that was saved is the one
@@ -365,6 +386,307 @@ async function sampleInvoice(m, wh, path) {
   if (!sample) return json({ detail: message }, 409)
   return json({ ...sample, demo: true, message, supplier_recognised: !!sample.document.supplier_id,
     profile_used: false, lr_filled: [] })
+}
+
+// ---- Order Management (OMS.jsx; the sample data is demo-data/tools/seed_oms.mjs) ----
+// The one module with rules here rather than a recording: an order moves through
+// its stages, stock is reserved and released, a return follows from a delivery.
+// A browser stops an idle worker after about 30 seconds, which would lose anything
+// kept only in memory, so the visit's state is written to the Cache API. A page
+// load clears it (see the fetch listener), as a reload resets the rest of the demo.
+const OMS_CACHE = 'wx-oms-visit', OMS_KEY = '/__oms_state'
+let omsP = null, omsCleared = null
+// Asked once per page load. A static host answers with a page or a 404, which is
+// "no": a 5xx means the API exists and is failing, which must show as an error, not
+// quietly turn into sample orders.
+let omsLiveP = null
+const omsStatus = () => (omsLiveP ||= fetch('/api/oms/health', { cache: 'no-store' })
+  .then(async (r) => {
+    if (r.status >= 500) return { live: true, open_local: false }
+    const j = r.ok ? await r.json() : {}
+    return { live: j.live === true, open_local: j.open_local === true }
+  })
+  .catch(() => ({ live: false, open_local: false })))
+const omsReset = () => { omsP = null; omsCleared = self.caches ? caches.delete(OMS_CACHE) : null; return omsCleared }
+const omsAgo = (h) => new Date(Date.now() - h * 3600000).toISOString()
+const omsDated = (e) => { const { at_h, ...rest } = e; return { ...rest, at: omsAgo(at_h) } }
+
+function omsFresh(seed) {
+  const stock = {}
+  for (const [wh, list] of Object.entries(seed.products)) for (const p of list) stock[`${wh}:${p.id}`] = p.stock
+  const orders = seed.orders.map(({ age_h, promised_h, shipped_h, delivered_h, events, ...o }) => ({ ...o,
+    created_at: omsAgo(age_h), promised_at: omsAgo(promised_h),
+    shipped_at: shipped_h == null ? null : omsAgo(shipped_h), delivered_at: delivered_h == null ? null : omsAgo(delivered_h),
+    events: events.map(omsDated) }))
+  const returns = seed.returns.map(({ age_h, events, ...r }) => ({ ...r, created_at: omsAgo(age_h), events: events.map(omsDated) }))
+  return { seed: { warehouses: seed.warehouses, products: seed.products, couriers: seed.couriers, channels: seed.channels,
+    cancel_reasons: seed.cancel_reasons, hold_reasons: seed.hold_reasons, return_reasons: seed.return_reasons,
+    promise_hours: seed.promise_hours }, stock, orders, returns,
+    nextOrder: Math.max(...orders.map((o) => +o.no.slice(3))) + 1, nextReturn: Math.max(...returns.map((r) => +r.no.slice(4))) + 1 }
+}
+const omsState = (m) => (omsP ||= (async () => {
+  await omsCleared
+  if (self.caches) {
+    const saved = await (await caches.open(OMS_CACHE)).match(OMS_KEY)
+    if (saved) return saved.json()
+  }
+  const seed = await recordedBody(m, 'GET - /api/oms/seed')
+  return seed ? omsFresh(seed) : null
+})())
+const omsSave = async (s) => {
+  if (self.caches) await (await caches.open(OMS_CACHE)).put(OMS_KEY, json(s))
+}
+
+const OMS_RESERVING = new Set(['allocated', 'picking', 'packed'])
+const omsHolds = (o) => OMS_RESERVING.has(o.status) || (o.status === 'on_hold' && o.held_from === 'allocated')
+const omsReserved = (s, wh, id) => s.orders.filter((o) => o.wh === wh && omsHolds(o))
+  .reduce((a, o) => a + o.lines.filter((l) => l.product_id === id).reduce((b, l) => b + l.qty, 0), 0)
+const omsAvail = (s, wh, id) => (s.stock[`${wh}:${id}`] || 0) - omsReserved(s, wh, id)
+const OMS_OPEN = new Set(['new', 'confirmed', 'allocated', 'picking', 'packed', 'backorder', 'on_hold'])
+const omsLate = (o) => OMS_OPEN.has(o.status) && new Date(o.promised_at) < new Date()
+const omsWhName = (s, id) => (s.seed.warehouses.find((w) => w.id === id) || {}).name || ''
+const omsView = (s, o) => ({ ...o, wh_name: omsWhName(s, o.wh), late: omsLate(o), units: o.lines.reduce((a, l) => a + l.qty, 0) })
+const omsReturned = (s, orderId, productId) => s.returns
+  .filter((r) => r.order_id === orderId && r.status !== 'rejected')
+  .reduce((a, r) => a + r.lines.filter((l) => l.product_id === productId).reduce((b, l) => b + l.qty, 0), 0)
+const omsOrderDetail = (s, o) => ({ ...omsView(s, o), returns: s.returns.filter((r) => r.order_id === o.id),
+  lines: o.lines.map((l) => ({ ...l, available: omsAvail(s, o.wh, l.product_id), returned: omsReturned(s, o.id, l.product_id) })) })
+const omsLog = (rec, status, note, by = 'Sample Admin') => rec.events.push({ at: new Date().toISOString(), status, note, by })
+const omsNo = (detail, status = 409) => json({ detail }, status)
+
+function omsOrderAction(s, o, b) {
+  const a = b.action
+  const needs = (...from) => from.includes(o.status)
+  const wrong = () => omsNo(`${o.no} is ${o.status.replace('_', ' ')}: it cannot do that now.`)
+  let message
+  if (a === 'confirm') {
+    if (!needs('new')) return wrong()
+    o.status = 'confirmed'; omsLog(o, 'confirmed', 'Order confirmed')
+  } else if (a === 'allocate') {
+    if (!needs('confirmed', 'backorder')) return wrong()
+    const short = o.lines.filter((l) => omsAvail(s, o.wh, l.product_id) < l.qty)
+    if (short.length) {
+      const what = short.map((l) => `${l.sku} (need ${l.qty}, ${Math.max(0, omsAvail(s, o.wh, l.product_id))} free)`).join(', ')
+      if (o.status !== 'backorder') { o.status = 'backorder'; omsLog(o, 'backorder', `Not enough stock: ${what}`) }
+      message = `Not enough stock, so ${o.no} is on backorder: ${what}`
+    } else {
+      o.status = 'allocated'; omsLog(o, 'allocated', `Stock reserved at ${omsWhName(s, o.wh)}`)
+    }
+  } else if (a === 'pick') {
+    if (!needs('allocated')) return wrong()
+    o.status = 'picking'; omsLog(o, 'picking', 'Picking started')
+  } else if (a === 'pack') {
+    if (!needs('picking')) return wrong()
+    o.status = 'packed'; omsLog(o, 'packed', 'Packed and labelled')
+  } else if (a === 'ship') {
+    if (!needs('packed')) return wrong()
+    if (!b.courier) return omsNo('Choose a courier.', 422)
+    for (const l of o.lines) s.stock[`${o.wh}:${l.product_id}`] = (s.stock[`${o.wh}:${l.product_id}`] || 0) - l.qty
+    o.status = 'shipped'; o.courier = b.courier; o.awb = `AWB${5000000 + o.id * 37}`; o.shipped_at = new Date().toISOString()
+    omsLog(o, 'shipped', `Handed to ${o.courier}, ${o.awb}`)
+  } else if (a === 'deliver') {
+    if (!needs('shipped')) return wrong()
+    o.status = 'delivered'; o.delivered_at = new Date().toISOString(); omsLog(o, 'delivered', 'Delivered to the customer')
+  } else if (a === 'hold') {
+    if (!needs('new', 'confirmed', 'allocated', 'backorder')) return wrong()
+    if (!b.reason) return omsNo('Say why it is on hold.', 422)
+    o.held_from = o.status; o.status = 'on_hold'; o.hold_reason = b.reason; omsLog(o, 'on_hold', b.reason)
+  } else if (a === 'release') {
+    if (!needs('on_hold')) return wrong()
+    o.status = o.held_from || 'confirmed'; o.held_from = null; o.hold_reason = null; omsLog(o, o.status, 'Released from hold')
+  } else if (a === 'cancel') {
+    if (!needs('new', 'confirmed', 'allocated', 'picking', 'packed', 'backorder', 'on_hold')) return wrong()
+    if (!b.reason) return omsNo('Say why it is being cancelled.', 422)
+    o.status = 'cancelled'; o.held_from = null; o.cancel_reason = b.reason
+    omsLog(o, 'cancelled', o.payment === 'Prepaid' ? `${b.reason}. Prepaid, so a refund is due.` : b.reason)
+  } else return omsNo('Unknown action.', 400)
+  return { ok: true, message }
+}
+
+function omsReturnAction(s, r, b) {
+  const a = b.action
+  const wrong = () => omsNo(`${r.no} is ${r.status}: it cannot do that now.`)
+  const order = s.orders.find((o) => o.id === r.order_id)
+  if (a === 'approve') {
+    if (r.status !== 'requested') return wrong()
+    r.status = 'approved'; omsLog(r, 'approved', 'Return approved')
+  } else if (a === 'reject') {
+    if (r.status !== 'requested') return wrong()
+    if (!b.reason) return omsNo('Say why it is rejected.', 422)
+    r.status = 'rejected'; omsLog(r, 'rejected', b.reason)
+  } else if (a === 'receive') {
+    if (r.status !== 'approved') return wrong()
+    if (!['good', 'damaged'].includes(b.condition)) return omsNo('Choose the condition of the goods.', 422)
+    r.status = 'received'; r.condition = b.condition
+    if (b.condition === 'good') for (const l of r.lines) s.stock[`${r.wh}:${l.product_id}`] = (s.stock[`${r.wh}:${l.product_id}`] || 0) + l.qty
+    omsLog(r, 'received', b.condition === 'good' ? 'Goods received in good condition, back in stock' : 'Goods received damaged, not returned to stock')
+  } else if (a === 'refund') {
+    if (r.status !== 'received') return wrong()
+    r.status = 'refunded'; r.refund_amount = r.value
+    omsLog(r, 'refunded', `Refund of ₹${r.value} issued (demo: no money moves)`)
+  } else if (a === 'exchange') {
+    if (r.status !== 'received') return wrong()
+    const no = `SO-${s.nextOrder++}`
+    const id = Math.max(...s.orders.map((o) => o.id)) + 1
+    const lines = r.lines.map((l) => ({ ...l, price: 0 }))
+    const rep = { id, no, wh: r.wh, channel: r.channel, status: 'confirmed', customer: order.customer, payment: 'Prepaid',
+      lines, subtotal: 0, shipping: 0, total: 0, created_at: new Date().toISOString(),
+      promised_at: new Date(Date.now() + s.seed.promise_hours * 3600000).toISOString(), replacement_for: r.no, events: [] }
+    omsLog(rep, 'confirmed', `Replacement for ${r.no}`)
+    s.orders.push(rep)
+    r.status = 'exchanged'; r.replacement_no = no; omsLog(r, 'exchanged', `Replacement order ${no} raised`)
+  } else return omsNo('Unknown action.', 400)
+  return { ok: true }
+}
+
+function omsSummary(s, wh, days) {
+  const since = Date.now() - days * 86400000
+  const orders = s.orders.filter((o) => (wh === '-' || o.wh === +wh) && new Date(o.created_at) >= new Date(since))
+  const returns = s.returns.filter((r) => (wh === '-' || r.wh === +wh) && new Date(r.created_at) >= new Date(since))
+  const live = orders.filter((o) => o.status !== 'cancelled')
+  const group = (list, keyOf) => {
+    const g = new Map()
+    for (const o of list) {
+      const k = keyOf(o), e = g.get(k) || { name: k, orders: 0, value: 0 }
+      e.orders++; e.value += o.total; g.set(k, e)
+    }
+    return [...g.values()].sort((a, b) => b.value - a.value)
+  }
+  const counts = {}
+  for (const o of orders) counts[o.status] = (counts[o.status] || 0) + 1
+  const shipped = orders.filter((o) => o.shipped_at)
+  const onTime = shipped.filter((o) => new Date(o.shipped_at) <= new Date(o.promised_at)).length
+  const hours = shipped.map((o) => (new Date(o.shipped_at) - new Date(o.created_at)) / 3600000)
+  const units = new Map()
+  for (const o of live) for (const l of o.lines) {
+    const e = units.get(l.sku) || { sku: l.sku, name: l.name, desc: l.desc, units: 0, value: 0 }
+    e.units += l.qty; e.value += l.qty * l.price; units.set(l.sku, e)
+  }
+  const reasons = new Map()
+  for (const r of returns) reasons.set(r.reason, (reasons.get(r.reason) || 0) + 1)
+  const delivered = orders.filter((o) => o.status === 'delivered').length
+  return { days, total: orders.length, value: live.reduce((a, o) => a + o.total, 0), counts,
+    open: orders.filter((o) => OMS_OPEN.has(o.status)).length,
+    late: orders.filter(omsLate).sort((a, b) => new Date(a.promised_at) - new Date(b.promised_at)).map((o) => omsView(s, o)),
+    backorders: orders.filter((o) => o.status === 'backorder').map((o) => omsView(s, o)),
+    on_time_pct: shipped.length ? Math.round((onTime / shipped.length) * 100) : null,
+    avg_ship_hours: hours.length ? Math.round(hours.reduce((a, h) => a + h, 0) / hours.length) : null,
+    returns_open: returns.filter((r) => ['requested', 'approved', 'received'].includes(r.status)).length,
+    return_rate_pct: delivered ? Math.round((returns.filter((r) => r.status !== 'rejected').length / delivered) * 100) : null,
+    refunded: returns.reduce((a, r) => a + (r.refund_amount || 0), 0),
+    by_channel: group(live, (o) => o.channel), by_warehouse: group(live, (o) => omsWhName(s, o.wh)),
+    top_products: [...units.values()].sort((a, b) => b.units - a.units).slice(0, 10),
+    return_reasons: [...reasons].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count) }
+}
+
+async function omsAnswer(m, req, method, path, url, wh) {
+  const s = await omsState(m)
+  if (!s) return json({ detail: 'The order sample data is missing from this build.' }, 503)
+  const inScope = (x) => wh === '-' || x.wh === +wh
+  const body = method === 'POST' ? await hrBody(req) : {}
+  const param = (k) => (url.searchParams.get(k) || '').trim()
+
+  if (method === 'GET' && path === '/api/oms/session') return json({ live: false, signed_in: true })
+  if (method === 'GET' && path === '/api/oms/options') {
+    const { products, ...rest } = s.seed
+    return json(rest)
+  }
+  if (method === 'GET' && path === '/api/oms/summary') return json(omsSummary(s, wh, +param('days') || 30))
+  if (method === 'GET' && path === '/api/oms/products') {
+    const at = +param('wh') || +wh
+    const q = param('q').toLowerCase()
+    const list = (s.seed.products[at] || []).map((p) => ({ ...p, stock: s.stock[`${at}:${p.id}`] || 0, available: omsAvail(s, at, p.id) }))
+    return json(list.filter((p) => !q || `${p.sku} ${p.name} ${p.desc}`.toLowerCase().includes(q)))
+  }
+  if (method === 'GET' && path === '/api/oms/orders') {
+    const scoped = s.orders.filter(inScope)
+    const counts = { all: scoped.length, late: scoped.filter(omsLate).length }
+    for (const o of scoped) counts[o.status] = (counts[o.status] || 0) + 1
+    const q = param('q').toLowerCase()
+    const rows = scoped.filter((o) => (!param('channel') || o.channel === param('channel'))
+      && (!param('status') || (param('status') === 'late' ? omsLate(o) : o.status === param('status')))
+      && (!q || `${o.no} ${o.customer.name} ${o.customer.phone} ${o.customer.city} ${o.lines.map((l) => l.sku).join(' ')}`.toLowerCase().includes(q)))
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    return json({ rows: rows.map((o) => omsView(s, o)), counts })
+  }
+  if (method === 'POST' && path === '/api/oms/orders') {
+    const at = +body.wh || +wh
+    const catalogue = s.seed.products[at]
+    if (!catalogue) return omsNo('Choose a warehouse.', 422)
+    if (!(body.customer || {}).name?.trim()) return omsNo('Enter the customer\'s name.', 422)
+    const asked = (body.lines || []).filter((l) => +l.qty > 0)
+    if (!asked.length) return omsNo('Add at least one product.', 422)
+    const lines = []
+    for (const l of asked) {
+      const p = catalogue.find((x) => x.id === +l.product_id)
+      if (!p) return omsNo('That product is not at this warehouse.', 422)
+      lines.push({ product_id: p.id, sku: p.sku, name: p.name, desc: p.desc, qty: +l.qty, price: p.price })
+    }
+    const subtotal = lines.reduce((a, l) => a + l.qty * l.price, 0)
+    const shipping = subtotal >= 2000 ? 0 : 99
+    const o = { id: Math.max(...s.orders.map((x) => x.id)) + 1, no: `SO-${s.nextOrder++}`, wh: at, channel: body.channel || 'Phone Order',
+      status: 'new', customer: { phone: '', email: '', city: '', address: '', ...body.customer }, payment: body.payment === 'COD' ? 'COD' : 'Prepaid',
+      lines, subtotal, shipping, total: subtotal + shipping, created_at: new Date().toISOString(),
+      promised_at: new Date(Date.now() + s.seed.promise_hours * 3600000).toISOString(), shipped_at: null, delivered_at: null, events: [] }
+    omsLog(o, 'new', `Entered by hand (${o.channel})`)
+    s.orders.push(o)
+    await omsSave(s)
+    return json(omsOrderDetail(s, o))
+  }
+  const om = path.match(/^\/api\/oms\/orders\/(\d+)(\/action)?$/)
+  if (om) {
+    const o = s.orders.find((x) => x.id === +om[1] && inScope(x))
+    if (!o) return omsNo('No such order here.', 404)
+    if (method === 'GET' && !om[2]) return json(omsOrderDetail(s, o))
+    if (method === 'POST' && om[2]) {
+      const r = omsOrderAction(s, o, body)
+      if (r instanceof Response) return r
+      await omsSave(s)
+      return json({ ...omsOrderDetail(s, o), message: r.message })
+    }
+  }
+  if (method === 'GET' && path === '/api/oms/returns') {
+    const scoped = s.returns.filter(inScope)
+    const counts = { all: scoped.length }
+    for (const r of scoped) counts[r.status] = (counts[r.status] || 0) + 1
+    const q = param('q').toLowerCase()
+    const rows = scoped.filter((r) => (!param('status') || r.status === param('status'))
+      && (!q || `${r.no} ${r.order_no} ${r.customer}`.toLowerCase().includes(q)))
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    return json({ rows, counts })
+  }
+  if (method === 'POST' && path === '/api/oms/returns') {
+    const o = s.orders.find((x) => x.id === +body.order_id && inScope(x))
+    if (!o) return omsNo('No such order here.', 404)
+    if (o.status !== 'delivered') return omsNo('Only a delivered order can be returned.')
+    if (!body.reason) return omsNo('Choose a reason.', 422)
+    const asked = (body.lines || []).filter((l) => +l.qty > 0)
+    if (!asked.length) return omsNo('Choose what is coming back.', 422)
+    const lines = []
+    for (const a of asked) {
+      const l = o.lines.find((x) => x.product_id === +a.product_id)
+      if (!l) return omsNo('That product is not on this order.', 422)
+      if (+a.qty > l.qty - omsReturned(s, o.id, l.product_id)) return omsNo(`Only ${l.qty - omsReturned(s, o.id, l.product_id)} of ${l.sku} can still be returned.`, 422)
+      lines.push({ product_id: l.product_id, sku: l.sku, name: l.name, desc: l.desc, qty: +a.qty, price: l.price })
+    }
+    const r = { id: Math.max(0, ...s.returns.map((x) => x.id)) + 1, no: `RMA-${s.nextReturn++}`, order_id: o.id, order_no: o.no, wh: o.wh,
+      channel: o.channel, customer: o.customer.name, status: 'requested', reason: body.reason, lines,
+      value: lines.reduce((a, l) => a + l.qty * l.price, 0), condition: null, refund_amount: null, created_at: new Date().toISOString(), events: [] }
+    omsLog(r, 'requested', body.reason)
+    s.returns.push(r)
+    await omsSave(s)
+    return json(r)
+  }
+  const rm = path.match(/^\/api\/oms\/returns\/(\d+)\/action$/)
+  if (rm && method === 'POST') {
+    const r = s.returns.find((x) => x.id === +rm[1] && inScope(x))
+    if (!r) return omsNo('No such return here.', 404)
+    const done = omsReturnAction(s, r, body)
+    if (done instanceof Response) return done
+    await omsSave(s)
+    return json(r)
+  }
+  return json({ detail: 'Not part of this demo.' }, 404)
 }
 
 // ---- HR employees kept for the visit (demo-data/tools/record_hr.py recorded the rest) ----

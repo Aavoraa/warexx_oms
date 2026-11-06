@@ -7,6 +7,7 @@ import heroImg from './assets/warehouse-hero.webp'
 import { parseDictation, coerceSpoken, dictationTargets } from './voicefill.js'
 import HR, { HR_SCREENS } from './HR.jsx'
 import Finance, { FIN_SCREENS } from './Finance.jsx'
+import OMS, { OMS_SCREENS } from './OMS.jsx'
 
 import { Icon, ICONS } from './ui/icons.jsx'
 import { PageCtx, usePage, Crumbs, PageHeader, Tabs, Kpis, DataPanel, Toolbar, StatusBadge, EmptyState, LoadingState, ErrorState, Drawer, FormSection, ActionBar, Stat as WxStat, RecordHead } from './ui/kit.jsx'
@@ -99,7 +100,7 @@ function LoginScreen({ onLogin }) {
         window.location.replace('/')
         return
       }
-      onLogin(r.token, r.user, r.role, r.permissions, r.full_name)
+      onLogin(r.token, r.user, r.role, r.permissions, r.full_name, r.must_change)
     } catch (e) { setErr(e.detail || 'Login failed'); setBusy(false) }
   }
   // a password typed with Caps Lock on is the commonest failed sign-in, and
@@ -13885,7 +13886,7 @@ function Users({ toast, me }) {
 }
 
 // The one account action everybody has, whatever their role.
-function ChangePassword({ onClose, toast }) {
+function ChangePassword({ onClose, toast, forced }) {
   const [cur, setCur] = useState('')
   const [next, setNext] = useState('')
   const [again, setAgain] = useState('')
@@ -13907,14 +13908,16 @@ function ChangePassword({ onClose, toast }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,20,20,.45)', zIndex: 100,
-      display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={forced ? undefined : onClose}>
       <div style={{ width: 380, maxWidth: 'calc(100vw - 32px)', background: 'var(--panel)', border: '1px solid var(--line)',
         borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-3)' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Change password</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>{forced ? 'Choose your own password' : 'Change password'}</h2>
           <div style={{ flex: 1 }} />
-          <button className="btn" style={{ padding: '2px 9px' }} onClick={onClose}>×</button>
+          {!forced && <button className="btn" style={{ padding: '2px 9px' }} onClick={onClose}>×</button>}
         </div>
+        {forced && <p className="small" style={{ margin: '0 0 12px', color: 'var(--muted)' }}>
+          This one was set for you. Replace it to carry on. At least 10 characters.</p>}
         <form onSubmit={save}>
           <div className="field"><label>Current password</label>
             <input type="password" value={cur} autoComplete="current-password"
@@ -16561,7 +16564,8 @@ const IN_STOCK_AUDIT = { physical_audit: 'qty' }
 
 //: The whole company-level menu. Anything not here needs a warehouse first.
 const COMPANY_LEVEL = new Set(['command', 'audit', 'central', 'locator', 'reports',
-                               'locations', 'users', ...HR_SCREENS.map(([k]) => k), ...FIN_SCREENS.map(([k]) => k)])
+                               'locations', 'users', ...HR_SCREENS.map(([k]) => k), ...FIN_SCREENS.map(([k]) => k),
+                               ...OMS_SCREENS.map(([k]) => k)])
 
 //: Four ranked roles — services/users.py holds the same four, and everything is
 //: compared by RANK so the top one inherits every screen below it.
@@ -16627,6 +16631,9 @@ const MODULES = [
   { key: 'inward', icon: '📥', label: 'Stock Inward', blurb: 'Accept a dispatched transfer, line by line' },
   { key: 'returns', icon: '↩', label: 'Returns', blurb: 'Debit notes raised against a posted GRN', min: 'admin' },
   { key: 'payments', icon: '₹', label: 'Payments', blurb: 'Settle supplier bills and read the ledger', min: 'admin' },
+  // Customer orders, from the channel to the doorstep and back (OMS.jsx).
+  // Every role works orders; the server limits who may refund, and which warehouses.
+  ...OMS_SCREENS.map(([key, label, blurb]) => ({ key, icon: '🛒', label, blurb })),
   // People and their pay (HR.jsx, from ESSA) — the company's, like the books:
   // one payroll pays every warehouse and store.
   ...HR_SCREENS.map(([key, label, blurb]) => ({ key, icon: '👥', label, blurb, min: 'admin', perm: 'hr' })),
@@ -16797,6 +16804,7 @@ function PosScreen({ screen, available, error, warehouse: wh, active = true }) {
 
 // Which mark each screen wears in the sidebar, the palette and the module cards.
 const NAV_ICON = {
+  oms_dashboard: 'dashboard', oms_orders: 'inbox', oms_fulfilment: 'truck', oms_returns: 'undo', oms_reports: 'barchart',
   command: 'compass', audit: 'history',
   central: 'dashboard', dashboard: 'dashboard', pickwh: 'building',
   purchase_orders: 'cart', lr: 'truck', documents: 'filetext', purchases: 'clipcheck',
@@ -16888,6 +16896,9 @@ const NAV_SECTIONS = {
       { id: 'dispatch', label: 'Dispatch', icon: 'truck', keys: ['outward', 'inward'] },
       { key: 'ws:store', label: 'Sales & Store', icon: 'store' },
     ] },
+    { title: 'Orders', entries: [
+      { id: 'oms', label: 'Order Management', icon: 'listchecks', keys: OMS_SCREENS.map(([k]) => k) },
+    ] },
     { title: 'Documents', entries: [
       { key: 'purchases' },
       { id: 'templates', label: 'Labels & Templates', icon: 'qr', keys: ['labels', 'labelprint'] },
@@ -16919,6 +16930,9 @@ const NAV_SECTIONS = {
     { title: 'Operations', entries: [
       { key: 'pickwh' }, { key: 'ws:warehouse', label: 'Warehouses', icon: 'building' },
       { key: 'locator' },
+    ] },
+    { title: 'Orders', entries: [
+      { id: 'oms', label: 'Order Management', icon: 'listchecks', keys: OMS_SCREENS.map(([k]) => k) },
     ] },
     { title: 'Finance', entries: [
       { id: 'fin_entry', label: 'Payments & Vouchers', icon: 'receipt',
@@ -18864,6 +18878,8 @@ export default function App() {
   const storeHome = storeUser ? 'pos:counter' : 'pos:home'
   const posItems = storeUser ? POS_ITEMS.filter((p) => p && POS_USER_KEYS.has(p.key)) : POS_ITEMS
   const [showPassword, setShowPassword] = useState(false)
+  // a password someone else set (a new account, a reset): theirs to replace before anything else
+  const [mustChange, setMustChange] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
 
   // Where an account lands when it is outside every warehouse. The Central
@@ -18937,6 +18953,7 @@ export default function App() {
         if (r.token && r.token !== t) localStorage.setItem('essa_token', r.token)
         setAuthed(true); setUser(r.user); setRole(r.role || ''); setFullName(r.full_name || '')
         setPerms(r.permissions || {})
+        setMustChange(!!r.must_change)
       } else session.clear()
     }).catch(() => {}).finally(() => setAuthChecked(true))
   }, [])
@@ -18964,8 +18981,9 @@ export default function App() {
     clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToastMsg(null), Math.min(9000, 3000 + text.length * 35))
   }, [])
-  const handleLogin = (token, u, r, perms, name) => {
+  const handleLogin = (token, u, r, perms, name, mustChangePw) => {
     session.set(token); setUser(u); setRole(r || ''); setPerms(perms || {}); setFullName(name || ''); setAuthed(true)
+    setMustChange(!!mustChangePw)
   }
   const logout = () => {
     // Clears the cookie as well as the stored token. Without the call the
@@ -19495,7 +19513,12 @@ export default function App() {
         onChanged={() => setNotifTick((t) => t + 1)} />}
       {showSettings && <VisionSettings onClose={() => setShowSettings(false)}
         onChanged={refreshStatus} toast={toast} />}
-      {showPassword && <ChangePassword onClose={() => setShowPassword(false)} toast={toast} />}
+      {(showPassword || mustChange) && <ChangePassword forced={mustChange} toast={toast}
+        onClose={() => {
+          // the screens behind the dialog were refused while it was up: start them over
+          if (mustChange) { window.location.reload(); return }
+          setShowPassword(false)
+        }} />}
       {showProfile && <MyProfile onClose={() => setShowProfile(false)} toast={toast} companyName={companyName} perms={perms}
         focus={showProfile}
         onPassword={() => { setShowProfile(false); setShowPassword(true) }}
@@ -19619,6 +19642,8 @@ export default function App() {
         <Returns toast={toast} />
       ) : k === 'payments' ? (
         <Payments toast={toast} />
+      ) : String(k).startsWith('oms_') ? (
+        <OMS key={k} screen={k} toast={toast} go={setTab} />
       ) : String(k).startsWith('fin_') ? (
         <Finance key={k} screen={k} toast={toast} />
       ) : String(k).startsWith('hr_') ? (

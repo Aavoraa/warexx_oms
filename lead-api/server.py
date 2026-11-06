@@ -58,7 +58,9 @@ load_env()
 trial_secret()
 sys.path.insert(0, HERE)
 from http_handler import LeadHandler  # noqa: E402  (after the settings: modules read them on import)
+import accounts  # noqa: E402
 import lead_mail  # noqa: E402
+import oms  # noqa: E402
 import payments  # noqa: E402
 import store  # noqa: E402
 import trial  # noqa: E402
@@ -70,6 +72,8 @@ def main():
     srv = ThreadingHTTPServer((host, port), LeadHandler)
     where = "SMTP " + lead_mail.SMTP_HOST if lead_mail.MAIL_BACKEND == "smtp" else "saved to " + lead_mail.MAIL_DIR
     print(f"[lead api] http://{host}:{port}/api/leads  (mail: {where})", flush=True)
+    print("[lead api] orders (OMS): " + (("PostgreSQL" if oms.database_url() else oms._sqlite_path()) if accounts.live()
+                                         else "OFF, the demo answers from sample data (set ACCOUNTS_SECRET)"), flush=True)
     print(f"[lead api] database: {store.kind()}"
           + ("" if store.database_url() else f" ({store._sqlite_path()})")
           + ("; trial emails carry a login password" if trial.credentials_on() else ""), flush=True)

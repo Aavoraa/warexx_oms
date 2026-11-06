@@ -61,7 +61,9 @@ export default defineConfig({
   envDir: here('..'),
   publicDir: here('./demo/public'),
   build: { outDir: OUT, emptyOutDir: true },
-  preview: { port: 8002, strictPort: true },
+  // OMS_API_URL=http://127.0.0.1:8003 sends orders and accounts to the real API
+  preview: { port: 8002, strictPort: true,
+    ...(process.env.OMS_API_URL ? { proxy: { '/api/oms': process.env.OMS_API_URL, '/api/auth': process.env.OMS_API_URL, '/api/users': process.env.OMS_API_URL } } : {}) },
   // the recorder's browser profile and scratch databases are locked files, not
   // source, so the watcher skips them
   server: { port: 8002, strictPort: true,

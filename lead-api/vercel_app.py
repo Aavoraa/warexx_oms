@@ -6,7 +6,7 @@ hands each request to the same handlers the local server (server.py) and the
 per-file functions (../api/*.py) use. Nothing about what a request does changes —
 only how it arrives.
 
-    /api/leads  /api/trial  /api/admin  /api/subscribe
+    /api/leads  /api/trial  /api/admin  /api/subscribe  /api/oms/*  /api/auth/*  /api/users*
     /api/payment/return  /api/payment/webhook      -> http_handler.LeadHandler
     /api/geo                                        -> the visitor's country
 

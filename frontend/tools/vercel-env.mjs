@@ -18,7 +18,7 @@
 //   new for the live site   DEMO_TRIAL_SECRET, ADMIN_PASSWORD, HDFC_WEBHOOK_USERNAME, HDFC_WEBHOOK_PASSWORD
 //                           (random; the admin and webhook ones are also written to
 //                           lead-api/data/live-settings.local.txt — git-ignored — because you
-//                           type them into /admin and the HDFC dashboard)
+//                           use them with /api/admin and the HDFC dashboard)
 //   always on               DEMO_EMAIL_PASSWORD=1
 //
 // NOT set here: the databases. This computer's PostgreSQL (localhost) cannot be
@@ -60,6 +60,7 @@ for (const k of need) out[k] = env[k]
 out.HDFC_RETURN_URL = `https://${domain}/api/payment/return`
 out.DEMO_TRIAL_SECRET = secret(48)
 out.ADMIN_PASSWORD = secret(15)
+out.ACCOUNTS_SECRET = secret(48)
 out.HDFC_WEBHOOK_USERNAME = 'warexx' + randomBytes(4).toString('hex')       // letters and digits only (HDFC's rule)
 out.HDFC_WEBHOOK_PASSWORD = secret(24)
 out.DEMO_EMAIL_PASSWORD = '1'
@@ -93,7 +94,7 @@ const keep = path.join(ROOT, 'lead-api', 'data')
 mkdirSync(keep, { recursive: true })
 writeFileSync(path.join(keep, 'live-settings.local.txt'),
   `Live site: https://${domain}  (written ${new Date().toISOString()})\n\n` +
-  `Admin page   https://${domain}/admin   password: ${out.ADMIN_PASSWORD}\n\n` +
+  `Admin API    https://${domain}/api/admin   password: ${out.ADMIN_PASSWORD}\n\n` +
   `HDFC SmartGateway dashboard → Settings → Webhooks:\n` +
   `  Webhook URL  https://${domain}/api/payment/webhook\n  Username     ${out.HDFC_WEBHOOK_USERNAME}\n  Password     ${out.HDFC_WEBHOOK_PASSWORD}\n` +
   `HDFC return URL: ${out.HDFC_RETURN_URL}\n`)

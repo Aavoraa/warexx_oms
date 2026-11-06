@@ -62,6 +62,8 @@ const send = (url, opts = {}) => {
   const token = session.get()
   const headers = new Headers(opts.headers || {})
   if (token) headers.set('X-Essa-Token', token)
+  // a staff session (demo/main.jsx): orders and accounts go to the real server (sw.js)
+  try { if (localStorage.getItem('wx_staff') === '1') headers.set('X-Wx-Staff', '1') } catch { /* private mode */ }
   // A person is clicking: let the server answer a repeated identical Create with
   // the first record instead of a second one (backend/app/idempotency.py).
   if (String(opts.method || 'GET').toUpperCase() === 'POST') headers.set('X-Essa-Dedupe', '1')
@@ -259,6 +261,12 @@ export function readableDetail(d) {
   if (typeof d === 'object') return readableDetail(d.error || d.message || d.detail || '')
   return String(d)
 }
+const omsJson = async (r) => {
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw apiError(r, j)
+  return j
+}
+
 export function apiError(r, j) {
   const status = r && r.status
   const detail = readableDetail(j && (j.detail ?? j.message))
@@ -309,7 +317,9 @@ export const api = {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }) })
     .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw apiError(r, j); return j }),
-  verifyToken: (token) => fetch('/api/auth/verify?token=' + encodeURIComponent(token || '')).then(J),
+  // A real token rides in the header (send, above) and stays out of the address, which
+  // ends up in logs. Only the demo's fixed one was recorded under this address.
+  verifyToken: (token) => fetch('/api/auth/verify' + (token === 'demo' ? '?token=demo' : '')).then(J),
   logout: () => fetch('/api/auth/logout', { method: 'POST' }).then(J).catch(() => ({})),
   changePassword: (current_password, new_password) => fetch('/api/auth/change-password', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1131,6 +1141,12 @@ export const api = {
     .then(async r => { const j = await r.json().catch(() => ({}))
       if (!r.ok) throw apiError(r, j)
       return j }),
+
+  // ---- Order Management (OMS.jsx) ----
+  omsGet: (path, params) => fetch('/api/oms/' + path + qs(params)).then(omsJson),
+  omsPost: (path, body) => fetch('/api/oms/' + path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}) }).then(omsJson),
 
   // settings / vision
   getSettings: () => fetch('/api/settings').then(J),
